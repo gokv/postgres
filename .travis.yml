@@ -1,0 +1,24 @@
+language: go
+
+addons:
+  postgresql: "9.5"
+
+go:
+  - '1.8'
+  - '1.10.x'
+  - '1.x'
+  - 'master'
+
+install:
+  - go get -t ./...
+
+before_script:
+  - psql -U postgres -c 'create database store;'
+
+script:
+  - go vet
+  - go test -v ./...
+
+matrix:
+  allow_failures:
+    - go: 'master'

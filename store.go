@@ -3,54 +3,77 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding"
+	"encoding/json"
+
+	"github.com/gokv/store"
 )
 
+// Store holds the SQL statements prepared against a Postgresql table.
+// Initialise with New.
 type Store struct {
-	ping       func() error
-	stmtSelect *sql.Stmt
-	stmtInsert *sql.Stmt
-	stmtKeys   *sql.Stmt
+	getStmt    *sql.Stmt
+	getAllStmt *sql.Stmt
+	addStmt    *sql.Stmt
+	setStmt    *sql.Stmt
+	updateStmt *sql.Stmt
+	deleteStmt *sql.Stmt
+
+	ping func(context.Context) error
 }
 
 // New creates a table of name tablename if it does not exist, and prepares
 // statements against it.
+// The table has two columms: "key" is the TEXT primary key and "v" is a JSONb column holding the values.
 func New(db *sql.DB, tablename string) (s Store, err error) {
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS "` + tablename + `" (key text PRIMARY KEY, value bytea)`); err != nil {
-		return
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS "` + tablename + `" (key TEXT NOT NULL PRIMARY KEY, v jsonb NOT NULL)`); err != nil {
+		return s, err
 	}
 
-	if s.stmtSelect, err = db.Prepare(`SELECT value FROM "` + tablename + `" WHERE key=$1`); err != nil {
+	if s.getStmt, err = db.Prepare(`SELECT v FROM "` + tablename + `" WHERE key=$1`); err != nil {
 		_ = s.Close()
-		return
+		return s, err
 	}
 
-	if s.stmtInsert, err = db.Prepare(`INSERT INTO "` + tablename + `" (key, value) VALUES ($1, $2)`); err != nil {
+	if s.getAllStmt, err = db.Prepare(`SELECT v FROM "` + tablename + `"`); err != nil {
 		_ = s.Close()
-		return
+		return s, err
 	}
 
-	if s.stmtKeys, err = db.Prepare(`SELECT key FROM "` + tablename + `"`); err != nil {
+	if s.addStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (key, v) VALUES ($1, $2)`); err != nil {
 		_ = s.Close()
-		return
+		return s, err
 	}
 
-	s.ping = db.Ping
+	if s.setStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (key, v) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET v=$2`); err != nil {
+		_ = s.Close()
+		return s, err
+	}
 
-	return
+	if s.updateStmt, err = db.Prepare(`UPDATE "` + tablename + `" SET v=$2 WHERE key=$1`); err != nil {
+		_ = s.Close()
+		return s, err
+	}
+
+	if s.deleteStmt, err = db.Prepare(`DELETE FROM "` + tablename + `" WHERE key=$1`); err != nil {
+		_ = s.Close()
+		return s, err
+	}
+
+	s.ping = db.PingContext
+
+	return s, err
 }
 
-func (s Store) Ping() (err error) {
-	return s.ping()
-}
-
-// Close releases the resources associated with the Client.
+// Close releases the resources associated with the Store.
 // Returns the first error encountered while closing the prepared statements.
 func (s Store) Close() (err error) {
 	for _, stmt := range []*sql.Stmt{
-		s.stmtSelect,
-		s.stmtInsert,
-		s.stmtKeys,
+		s.getStmt,
+		s.getAllStmt,
+		s.addStmt,
+		s.setStmt,
+		s.updateStmt,
+		s.deleteStmt,
 	} {
 		if stmt != nil {
 			if e := stmt.Close(); err == nil {
@@ -58,73 +81,107 @@ func (s Store) Close() (err error) {
 			}
 		}
 	}
-	return
+	return err
 }
 
-// Get returns the value corresponding the key, and a nil error.
-// If no match is found, returns (false, nil).
-func (s Store) Get(key string, v encoding.BinaryUnmarshaler) (ok bool, err error) {
+// Get retrieves a new item by key and unmarshals it into v, or returns false if
+// not found.
+// Err is non-nil in case of failure.
+func (s Store) Get(ctx context.Context, key interface{}, v json.Unmarshaler) (bool, error) {
 	var b []byte
-	err = s.stmtSelect.QueryRow(key).Scan(&b)
-	if err == sql.ErrNoRows {
-		return false, nil
+	if err := s.getStmt.QueryRowContext(ctx, key).Scan(&b); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
 	}
-	if err != nil {
-		return
-	}
-
-	return true, v.UnmarshalBinary(b)
+	return true, v.UnmarshalJSON(b)
 }
 
-// Add assigns the given value to the given key.
-// Returns error if key is already assigned.
-func (s Store) Add(key string, v encoding.BinaryMarshaler) error {
-	b, err := v.MarshalBinary()
+// GetAll appends to c every item in the store.
+// Err is non-nil in case of failure.
+func (s Store) GetAll(ctx context.Context, c store.Collection) error {
+	rows, err := s.getAllStmt.QueryContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var b []byte
+	for rows.Next() {
+		if err = rows.Scan(&b); err != nil {
+			return err
+		}
+		if err = c.New().UnmarshalJSON(b); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func (s Store) Add(ctx context.Context, key interface{}, v json.Marshaler) error {
+	b, err := v.MarshalJSON()
 	if err != nil {
 		return err
 	}
 
-	_, err = s.stmtInsert.Exec(key, b)
-
+	_, err = s.addStmt.ExecContext(ctx, key, b)
 	return err
 }
 
-// Keys lists all the stored keys.
-func (s Store) Keys(ctx context.Context) (<-chan string, <-chan error) {
-	var (
-		keys = make(chan string)
-		errs = make(chan error, 2)
-	)
-
-	rows, err := s.stmtKeys.QueryContext(ctx)
+func (s Store) Set(ctx context.Context, key interface{}, v json.Marshaler) error {
+	b, err := v.MarshalJSON()
 	if err != nil {
-		errs <- err
-		close(errs)
-		close(keys)
-		return keys, errs
+		return err
 	}
 
-	go func() {
-		defer close(errs)
-		defer close(keys)
-		defer func() {
-			if err := rows.Close(); err != nil {
-				errs <- err
-			}
-		}()
+	_, err = s.setStmt.ExecContext(ctx, key, b)
+	return err
+}
 
-		for rows.Next() {
-			var key string
-			if err := rows.Scan(&key); err != nil {
-				errs <- err
-			}
-			keys <- key
-		}
+// Update assigns the given value to the given key, if it exists.
+// Err is non-nil if the key was not already present, or in case of failure.
+func (s Store) Update(ctx context.Context, key interface{}, v json.Marshaler) error {
+	b, err := v.MarshalJSON()
+	if err != nil {
+		return err
+	}
 
-		if err := rows.Err(); err != nil {
-			errs <- err
-		}
-	}()
+	res, err := s.updateStmt.ExecContext(ctx, key, b)
+	if err != nil {
+		return err
+	}
 
-	return keys, errs
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n < 1 {
+		return store.ErrNoRows
+	}
+
+	return nil
+}
+
+func (s Store) Delete(ctx context.Context, key interface{}) error {
+	res, err := s.deleteStmt.ExecContext(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n < 1 {
+		return store.ErrNoRows
+	}
+
+	return nil
+}
+
+func (s Store) Ping(ctx context.Context) error {
+	return s.ping(ctx)
 }
