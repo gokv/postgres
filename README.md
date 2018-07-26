@@ -109,5 +109,5 @@ func main() {
 
 ## Roadmap
 
-[x] Basic CRUD
-[ ] Search
+* [x] Basic CRUD
+* [ ] Search
