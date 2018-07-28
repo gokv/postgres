@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 
 	"github.com/gokv/store"
+	"github.com/google/uuid"
 )
 
 // Store holds the SQL statements prepared against a Postgresql table.
@@ -119,14 +120,18 @@ func (s Store) GetAll(ctx context.Context, c store.Collection) error {
 	return rows.Err()
 }
 
-func (s Store) Add(ctx context.Context, k string, v json.Marshaler) error {
+// Add persists a new object and returns its unique UUIDv4 key.
+// Err is non-nil in case of failure.
+func (s Store) Add(ctx context.Context, v json.Marshaler) (string, error) {
 	b, err := v.MarshalJSON()
 	if err != nil {
-		return err
+		return "", err
 	}
 
+	k := uuid.New().String()
+
 	_, err = s.addStmt.ExecContext(ctx, k, b)
-	return err
+	return k, err
 }
 
 func (s Store) Set(ctx context.Context, k string, v json.Marshaler) error {

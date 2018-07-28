@@ -148,7 +148,39 @@ func TestGetAll(t *testing.T) {
 	}
 }
 
-func TestAddSetUpdate(t *testing.T) {
+func TestAdd(t *testing.T) {
+	t.Run("adds a value", func(t *testing.T) {
+		db := newDB()
+		defer db.Close()
+		s, err := postgres.New(db, "test_add")
+		if err != nil {
+			panic(err)
+		}
+		defer s.Close()
+
+		added := String("some value")
+
+		k, err := s.Add(context.Background(), added)
+		if err != nil {
+			t.Errorf("adding: %v", err)
+		}
+
+		var got String
+		ok, err := s.Get(context.Background(), k, &got)
+		if err != nil {
+			t.Errorf("getting: %v", err)
+		}
+		if !ok {
+			t.Errorf("value expected, not found")
+		}
+
+		if added != got {
+			t.Errorf("expected %q, found %q", added, got)
+		}
+	})
+}
+
+func TestSetUpdate(t *testing.T) {
 	db := newDB()
 	defer db.Close()
 	s, err := postgres.New(db, "test_table")
@@ -171,11 +203,6 @@ func TestAddSetUpdate(t *testing.T) {
 			action      func(context.Context, string, json.Marshaler) error
 			expectation bool
 		}{
-			{
-				"Add succeeds",
-				s.Add,
-				succeeds,
-			},
 			{
 				"Set succeeds",
 				s.Set,
@@ -238,11 +265,6 @@ func TestAddSetUpdate(t *testing.T) {
 			action      func(context.Context, string, json.Marshaler) error
 			expectation bool
 		}{
-			{
-				"Add fails",
-				s.Add,
-				fails,
-			},
 			{
 				"Set succeeds",
 				s.Set,
