@@ -94,7 +94,7 @@ func TestGet(t *testing.T) {
 		panic(err)
 	}
 
-	if _, err := db.Exec("INSERT INTO test_table (key, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
+	if _, err := db.Exec("INSERT INTO test_table (k, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
 		panic(err)
 	}
 
@@ -127,7 +127,7 @@ func TestGetAll(t *testing.T) {
 		panic(err)
 	}
 
-	if _, err := db.Exec("INSERT INTO test_table (key, v) VALUES ($1, $2), ($3, $4)", "key0", `"value0"`, "key1", `"value1"`); err != nil {
+	if _, err := db.Exec("INSERT INTO test_table (k, v) VALUES ($1, $2), ($3, $4)", "key0", `"value0"`, "key1", `"value1"`); err != nil {
 		panic(err)
 	}
 
@@ -168,7 +168,7 @@ func TestAddSetUpdate(t *testing.T) {
 	t.Run("when passed a new key", func(t *testing.T) {
 		for _, tc := range [...]struct {
 			name        string
-			action      func(context.Context, interface{}, json.Marshaler) error
+			action      func(context.Context, string, json.Marshaler) error
 			expectation bool
 		}{
 			{
@@ -198,7 +198,7 @@ func TestAddSetUpdate(t *testing.T) {
 				err := tc.action(ctx, "key", newValue)
 
 				var v string
-				sqlErr := db.QueryRow("SELECT v FROM test_table WHERE key=$1", "key").Scan(&v)
+				sqlErr := db.QueryRow("SELECT v FROM test_table WHERE k=$1", "key").Scan(&v)
 				if sqlErr != nil && sqlErr != sql.ErrNoRows {
 					panic(sqlErr)
 				}
@@ -235,7 +235,7 @@ func TestAddSetUpdate(t *testing.T) {
 	t.Run("when passed an existing key", func(t *testing.T) {
 		for _, tc := range [...]struct {
 			name        string
-			action      func(context.Context, interface{}, json.Marshaler) error
+			action      func(context.Context, string, json.Marshaler) error
 			expectation bool
 		}{
 			{
@@ -263,14 +263,14 @@ func TestAddSetUpdate(t *testing.T) {
 
 				reset()
 
-				if _, err := db.Exec("INSERT INTO test_table (key, v) VALUES ($1, $2)", "key", preset); err != nil {
+				if _, err := db.Exec("INSERT INTO test_table (k, v) VALUES ($1, $2)", "key", preset); err != nil {
 					panic(err)
 				}
 
 				err := tc.action(ctx, "key", newValue)
 
 				var v string
-				sqlErr := db.QueryRow("SELECT v FROM test_table WHERE key=$1", "key").Scan(&v)
+				sqlErr := db.QueryRow("SELECT v FROM test_table WHERE k=$1", "key").Scan(&v)
 				if sqlErr != nil {
 					panic(sqlErr)
 				}
@@ -310,7 +310,7 @@ func TestDelete(t *testing.T) {
 		panic(err)
 	}
 
-	if _, err := db.Exec("INSERT INTO test_table (key, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
+	if _, err := db.Exec("INSERT INTO test_table (k, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
 		panic(err)
 	}
 
@@ -319,7 +319,7 @@ func TestDelete(t *testing.T) {
 	}
 
 	var v string
-	if sqlErr := db.QueryRow("SELECT v FROM test_table WHERE key=$1", "key").Scan(&v); sqlErr != sql.ErrNoRows {
+	if sqlErr := db.QueryRow("SELECT v FROM test_table WHERE k=$1", "key").Scan(&v); sqlErr != sql.ErrNoRows {
 		t.Errorf("expected `%v`, found `%v`", sql.ErrNoRows, sqlErr)
 	}
 }

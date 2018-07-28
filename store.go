@@ -23,13 +23,13 @@ type Store struct {
 
 // New creates a table of name tablename if it does not exist, and prepares
 // statements against it.
-// The table has two columms: "key" is the TEXT primary key and "v" is a JSONb column holding the values.
+// The table has two columms: "k" is the TEXT primary key and "v" is a JSONb column holding the values.
 func New(db *sql.DB, tablename string) (s Store, err error) {
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS "` + tablename + `" (key TEXT NOT NULL PRIMARY KEY, v jsonb NOT NULL)`); err != nil {
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS "` + tablename + `" (k TEXT NOT NULL PRIMARY KEY, v jsonb NOT NULL)`); err != nil {
 		return s, err
 	}
 
-	if s.getStmt, err = db.Prepare(`SELECT v FROM "` + tablename + `" WHERE key=$1`); err != nil {
+	if s.getStmt, err = db.Prepare(`SELECT v FROM "` + tablename + `" WHERE k=$1`); err != nil {
 		_ = s.Close()
 		return s, err
 	}
@@ -39,22 +39,22 @@ func New(db *sql.DB, tablename string) (s Store, err error) {
 		return s, err
 	}
 
-	if s.addStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (key, v) VALUES ($1, $2)`); err != nil {
+	if s.addStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (k, v) VALUES ($1, $2)`); err != nil {
 		_ = s.Close()
 		return s, err
 	}
 
-	if s.setStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (key, v) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET v=$2`); err != nil {
+	if s.setStmt, err = db.Prepare(`INSERT INTO "` + tablename + `" (k, v) VALUES ($1, $2) ON CONFLICT (k) DO UPDATE SET v=$2`); err != nil {
 		_ = s.Close()
 		return s, err
 	}
 
-	if s.updateStmt, err = db.Prepare(`UPDATE "` + tablename + `" SET v=$2 WHERE key=$1`); err != nil {
+	if s.updateStmt, err = db.Prepare(`UPDATE "` + tablename + `" SET v=$2 WHERE k=$1`); err != nil {
 		_ = s.Close()
 		return s, err
 	}
 
-	if s.deleteStmt, err = db.Prepare(`DELETE FROM "` + tablename + `" WHERE key=$1`); err != nil {
+	if s.deleteStmt, err = db.Prepare(`DELETE FROM "` + tablename + `" WHERE k=$1`); err != nil {
 		_ = s.Close()
 		return s, err
 	}
@@ -87,9 +87,9 @@ func (s Store) Close() (err error) {
 // Get retrieves a new item by key and unmarshals it into v, or returns false if
 // not found.
 // Err is non-nil in case of failure.
-func (s Store) Get(ctx context.Context, key interface{}, v json.Unmarshaler) (bool, error) {
+func (s Store) Get(ctx context.Context, k string, v json.Unmarshaler) (bool, error) {
 	var b []byte
-	if err := s.getStmt.QueryRowContext(ctx, key).Scan(&b); err != nil {
+	if err := s.getStmt.QueryRowContext(ctx, k).Scan(&b); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
@@ -119,35 +119,35 @@ func (s Store) GetAll(ctx context.Context, c store.Collection) error {
 	return rows.Err()
 }
 
-func (s Store) Add(ctx context.Context, key interface{}, v json.Marshaler) error {
+func (s Store) Add(ctx context.Context, k string, v json.Marshaler) error {
 	b, err := v.MarshalJSON()
 	if err != nil {
 		return err
 	}
 
-	_, err = s.addStmt.ExecContext(ctx, key, b)
+	_, err = s.addStmt.ExecContext(ctx, k, b)
 	return err
 }
 
-func (s Store) Set(ctx context.Context, key interface{}, v json.Marshaler) error {
+func (s Store) Set(ctx context.Context, k string, v json.Marshaler) error {
 	b, err := v.MarshalJSON()
 	if err != nil {
 		return err
 	}
 
-	_, err = s.setStmt.ExecContext(ctx, key, b)
+	_, err = s.setStmt.ExecContext(ctx, k, b)
 	return err
 }
 
 // Update assigns the given value to the given key, if it exists.
 // Err is non-nil if the key was not already present, or in case of failure.
-func (s Store) Update(ctx context.Context, key interface{}, v json.Marshaler) error {
+func (s Store) Update(ctx context.Context, k string, v json.Marshaler) error {
 	b, err := v.MarshalJSON()
 	if err != nil {
 		return err
 	}
 
-	res, err := s.updateStmt.ExecContext(ctx, key, b)
+	res, err := s.updateStmt.ExecContext(ctx, k, b)
 	if err != nil {
 		return err
 	}
@@ -164,8 +164,8 @@ func (s Store) Update(ctx context.Context, key interface{}, v json.Marshaler) er
 	return nil
 }
 
-func (s Store) Delete(ctx context.Context, key interface{}) error {
-	res, err := s.deleteStmt.ExecContext(ctx, key)
+func (s Store) Delete(ctx context.Context, k string) error {
+	res, err := s.deleteStmt.ExecContext(ctx, k)
 	if err != nil {
 		return err
 	}

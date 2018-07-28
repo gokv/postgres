@@ -21,7 +21,7 @@ s, _ = postgres.New(db, "table_name")
 
 // store defines the methods required in this function, or in this package.
 type store interface {
-  Add(ctx context.Context, id interface{}, v json.Marshaler) error
+  Add(ctx context.Context, id string, v json.Marshaler) error
 }
 
 // SaveNewBook accepts the postgres.Store as a locally-defined interface.
@@ -96,7 +96,7 @@ func main() {
 	defer s.Close()
 
 	// Add a new entry
-	err = s.Add(context.Context(), uuid.New(), User{
+	err = s.Add(context.Context(), uuid.New().String(), User{
 		Firstname: "Giacomo",
 		Lastname:  "Leopardi",
 		CreatedAt: time.Now(),
