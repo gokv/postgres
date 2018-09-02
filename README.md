@@ -88,8 +88,10 @@ func main() {
 	}
 	defer db.Close()
 
-	// Pass the *sql.DB and the name of the table the Store will act on
-	s, err := postgres.New(db, "users")
+	// Pass the *sql.DB and the name of the table the Store will be bound to.
+	// WithCreateTable is the option for creating the table if it doesn't exist
+	// already.
+	s, err := postgres.New(db, "users", WithCreateTable)
 	if err != nil {
 		log.Fatal(err)
 	}

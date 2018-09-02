@@ -50,11 +50,42 @@ func newDB() *sql.DB {
 	return db
 }
 
+func TestNew(t *testing.T) {
+	t.Run("runs on a previously created table", func(t *testing.T) {
+		db := newDB()
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS "test_new" (k TEXT NOT NULL PRIMARY KEY, v jsonb NOT NULL)`); err != nil {
+			panic(err)
+		}
+		s, err := postgres.New(db, "test_new")
+		if err != nil {
+			t.Errorf("unexpected error : %v", err)
+		}
+		defer s.Close()
+		if err := s.Ping(context.Background()); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("creates the table if asked", func(t *testing.T) {
+		db := newDB()
+		defer db.Close()
+		s, err := postgres.New(db, "test_new", postgres.WithCreateTable)
+		if err != nil {
+			t.Errorf("unexpected error : %v", err)
+		}
+		defer s.Close()
+		if err := s.Ping(context.Background()); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestPing(t *testing.T) {
 	t.Run("returns nil on a healthy connection", func(t *testing.T) {
 		db := newDB()
 		defer db.Close()
-		s, err := postgres.New(db, "test_table")
+		s, err := postgres.New(db, "test_table", postgres.WithCreateTable)
 		if err != nil {
 			panic(err)
 		}
@@ -67,7 +98,7 @@ func TestPing(t *testing.T) {
 
 	t.Run("returns non-nil error a failed connection", func(t *testing.T) {
 		db := newDB()
-		s, err := postgres.New(db, "test_table")
+		s, err := postgres.New(db, "test_table", postgres.WithCreateTable)
 		if err != nil {
 			panic(err)
 		}
@@ -82,42 +113,65 @@ func TestPing(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	db := newDB()
-	defer db.Close()
-	s, err := postgres.New(db, "test_table")
-	if err != nil {
-		panic(err)
-	}
-	defer s.Close()
+	t.Run("fetches a previously inserted value", func(t *testing.T) {
+		db := newDB()
+		defer db.Close()
+		s, err := postgres.New(db, "test_get_0", postgres.WithCreateTable)
+		if err != nil {
+			panic(err)
+		}
+		defer s.Close()
 
-	if _, err := db.Exec("DELETE FROM test_table"); err != nil {
-		panic(err)
-	}
+		if _, err := db.Exec("INSERT INTO test_get_0 (k, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
+			panic(err)
+		}
 
-	if _, err := db.Exec("INSERT INTO test_table (k, v) VALUES ($1, $2)", "key", `"the value"`); err != nil {
-		panic(err)
-	}
+		var v String
+		ok, err := s.Get(context.Background(), "key", &v)
 
-	var v String
-	ok, err := s.Get(context.Background(), "key", &v)
+		if !ok {
+			t.Error("expected OK to be true, found false")
+		}
 
-	if !ok {
-		t.Error("expected OK to be true, found false")
-	}
+		if err != nil {
+			t.Errorf("expected err to be nil, found `%v`", err)
+		}
 
-	if err != nil {
-		t.Errorf("expected err to be nil, found `%v`", err)
-	}
+		if have, want := string(v), "the value"; have != want {
+			t.Errorf("expected value to be %q, found %q", want, have)
+		}
+	})
 
-	if have, want := string(v), "the value"; have != want {
-		t.Errorf("expected value to be %q, found %q", want, have)
-	}
+	t.Run("returns false if the key doesn't exist", func(t *testing.T) {
+		db := newDB()
+		defer db.Close()
+		s, err := postgres.New(db, "test_get_1", postgres.WithCreateTable)
+		if err != nil {
+			panic(err)
+		}
+		defer s.Close()
+
+		var v String
+		ok, err := s.Get(context.Background(), "key", &v)
+
+		if ok {
+			t.Error("expected OK to be false, found true")
+		}
+
+		if err != nil {
+			t.Errorf("expected err to be nil, found `%v`", err)
+		}
+
+		if have, want := string(v), ""; have != want {
+			t.Errorf("expected value to be %q, found %q", want, have)
+		}
+	})
 }
 
 func TestGetAll(t *testing.T) {
 	db := newDB()
 	defer db.Close()
-	s, err := postgres.New(db, "test_table")
+	s, err := postgres.New(db, "test_table", postgres.WithCreateTable)
 	if err != nil {
 		panic(err)
 	}
@@ -152,7 +206,7 @@ func TestAdd(t *testing.T) {
 	t.Run("adds a value", func(t *testing.T) {
 		db := newDB()
 		defer db.Close()
-		s, err := postgres.New(db, "test_add")
+		s, err := postgres.New(db, "test_add", postgres.WithCreateTable)
 		if err != nil {
 			panic(err)
 		}
@@ -183,7 +237,7 @@ func TestAdd(t *testing.T) {
 func TestSetUpdate(t *testing.T) {
 	db := newDB()
 	defer db.Close()
-	s, err := postgres.New(db, "test_table")
+	s, err := postgres.New(db, "test_table", postgres.WithCreateTable)
 	if err != nil {
 		panic(err)
 	}
@@ -322,7 +376,7 @@ func TestSetUpdate(t *testing.T) {
 func TestDelete(t *testing.T) {
 	db := newDB()
 	defer db.Close()
-	s, err := postgres.New(db, "test_table")
+	s, err := postgres.New(db, "test_table", postgres.WithCreateTable)
 	if err != nil {
 		panic(err)
 	}

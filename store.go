@@ -25,9 +25,11 @@ type Store struct {
 // New creates a table of name tablename if it does not exist, and prepares
 // statements against it.
 // The table has two columms: "k" is the TEXT primary key and "v" is a JSONb column holding the values.
-func New(db *sql.DB, tablename string) (s Store, err error) {
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS "` + tablename + `" (k TEXT NOT NULL PRIMARY KEY, v jsonb NOT NULL)`); err != nil {
-		return s, err
+func New(db *sql.DB, tablename string, options ...Option) (s Store, err error) {
+	for _, apply := range options {
+		if err = apply(db, tablename); err != nil {
+			return s, err
+		}
 	}
 
 	if s.getStmt, err = db.Prepare(`SELECT v FROM "` + tablename + `" WHERE k=$1`); err != nil {
